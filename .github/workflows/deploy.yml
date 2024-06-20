@@ -1,0 +1,97 @@
+
+name: Daily zip Export and Deploy
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Runs daily at midnight UTC
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SSH_HOSTNAME }} >> ~/.ssh/known_hosts
+
+      - name: Debug - Check environment variables
+        run: |
+          echo "SSH_USERNAME: ${{ secrets.SSH_USERNAME }}"
+          echo "SSH_HOSTNAME: ${{ secrets.SSH_HOSTNAME }}"
+          echo "ZIP_DIR: ${{ secrets.ZIP_DIR }}"
+          echo "Checking SSH key..."
+          cat ~/.ssh/id_rsa | head -n 5  # Display the first few lines of the SSH key for debugging
+
+      - name: Fetch latest ZIP from server
+        run: |
+          echo "Fetching the latest zip file from ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOSTNAME }}:${{ secrets.ZIP_DIR }}"
+          LATEST_ZIP=$(ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no "${{ secrets.SSH_USERNAME }}"@"${{ secrets.SSH_HOSTNAME }}" "ls -t ${{ secrets.ZIP_DIR }}/*.zip | head -n 1")
+          echo "LATEST_ZIP: $LATEST_ZIP"
+          echo "$LATEST_ZIP" > latest_zip.txt
+        id: fetch_zip
+
+      - name: Check if ZIP has already been processed
+        id: check_zip
+        run: |
+          if [ -f last_processed_zip.txt ]; then
+            LAST_PROCESSED_ZIP=$(cat last_processed_zip.txt)
+            LATEST_ZIP=$(cat latest_zip.txt)
+            if [ "$LAST_PROCESSED_ZIP" == "$LATEST_ZIP" ]; then
+              echo "The latest ZIP file has already been processed. Exiting."
+              echo "continue=false" >> $GITHUB_ENV
+              exit 0
+            fi
+          else
+            echo "No last_processed_zip.txt file found. Continuing with the workflow."
+          fi
+          echo "continue=true" >> $GITHUB_ENV
+
+      - name: Download and extract ZIP
+        if: env.continue == 'true'
+        run: |
+          LATEST_ZIP=$(cat latest_zip.txt)
+          scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no "${{ secrets.SSH_USERNAME }}"@"${{ secrets.SSH_HOSTNAME }}":"$LATEST_ZIP" .
+          unzip $(basename "$LATEST_ZIP") -d site
+
+      - name: Modify 404 page
+        if: env.continue == 'true'
+        run: |
+          if [ -f site/404/index.html ]; then
+            mv site/404/index.html site/404.html
+            rm -r site/404
+          fi
+
+      - name: Deploy to Cloudflare Pages
+        if: env.continue == 'true'
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          projectName: ${{ secrets.CF_PROJECT_NAME }}
+          directory: './site'
+
+      - name: Save processed ZIP file name
+        if: env.continue == 'true'
+        run: |
+          LATEST_ZIP=$(cat latest_zip.txt)
+          echo "$LATEST_ZIP" > last_processed_zip.txt
+
+      - name: Commit and push last processed ZIP
+        if: env.continue == 'true'
+        run: |
+          git config --global user.email "${{ secrets.GIT_USER_EMAIL }}"
+          git config --global user.name "${{ secrets.GIT_USER_NAME }}"
+          git add last_processed_zip.txt
+          git commit -m "Update last processed ZIP"
+          git push
+        env:
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
