@@ -40,6 +40,8 @@ The GitHub Actions workflow is defined in `.github/workflows/deploy.yml`. Below 
   - `CF_API_TOKEN`: Your Cloudflare API token.
   - `CF_ACCOUNT_ID`: Your Cloudflare Account ID.
   - `CF_PROJECT_NAME`: Your Cloudflare Pages project name.
+  - `GIT_USER_NAME`: Your GitHub name.
+  - `GIT_USER_EMAIL`: Your GitHub email.
 
 
 To run your own private instance of this repository, follow these steps:
@@ -53,6 +55,7 @@ To run your own private instance of this repository, follow these steps:
    ```bash
    git clone https://github.com/<your-username>/zip-to-cf.git
    cd zip-to-cf
+   ```
 
 3. **Set Up Secrets:**
    - Add the necessary secrets in your forked GitHub repository settings (`Settings > Secrets and variables > Actions`).
@@ -65,7 +68,8 @@ To run your own private instance of this repository, follow these steps:
    ```bash
    git add .
    git commit -m "Customizing for my setup"
-   git push origin main```
+   git push origin main
+   ```
 
 6. **Merging Updates:**
    - When the original repository is updated, you can merge these changes into your fork. Since secrets are stored in the repository settings and not in the code, they will remain unaffected and continue to work.
